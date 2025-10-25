@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Stop-Motion con Onion-Skin (10 fotos)</title>
+<style>
+  :root { --ink:#0b0f14; --bg:#0f141b; --panel:#121a23; --muted:#9fb3c9; --accent:#7bdcff; }
+  html, body { height:100%; margin:0; background:var(--bg); color:#e6eef7; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
+  .wrap { display:flex; flex-direction:column; min-height:100vh; }
+  header { padding:10px 14px; display:flex; gap:8px; align-items:center; border-bottom:1px solid rgba(255,255,255,.06); }
+  header h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.2px; }
+  main { display:grid; gap:10px; padding:10px; grid-template-columns: 1fr; }
+  @media(min-width:880px){ main{ grid-template-columns: minmax(360px,480px) 1fr; } }
+
+  /* Panel cámara */
+  .cam { background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:10px; display:grid; gap:10px; }
+  .stage { position:relative; width:100%; aspect-ratio:3/4; background:#000; border-radius:12px; overflow:hidden; }
+  video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); /* espejo para selfie; quitamos al usar trasera */ }
+  .onion { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; opacity:.35; }
+  .hud { position:absolute; inset:auto 8px 8px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .chip { background:rgba(0,0,0,.45); padding:6px 10px; border-radius:999px; font-size:12px; backdrop-filter: blur(6px); border:1px solid rgba(255,255,255,.12) }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .grow { flex:1 1 auto; }
+
+  /* Botones */
+  button, select, input[type="range"] {
+    background:#0e151d; color:#e6eef7; border:1px solid rgba(255,255,255,.12);
+    border-radius:12px; padding:10px 12px; font-size:14px;
+  }
+  button.primary { background:linear-gradient(180deg,#1f2b38,#141d27); border-color:#2b3a4b; }
+  button.accent { background:linear-gradient(180deg,#15343e,#0f262d); border-color:#255866; color:#bff2ff; }
+  button:disabled { opacity:.5; pointer-events:none; }
+  .big { font-size:18px; padding:12px 16px; border-radius:14px; }
+
+  /* Tiras de miniaturas */
+  .strip { background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:10px; display:grid; gap:10px; }
+  .thumbs { display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; }
+  .thumbs img { width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:10px; border:1px solid rgba(255,255,255,.08); }
+  .meta { font-size:13px; color:var(--muted); display:flex; justify-content:space-between; align-items:center; }
+
+  /* Salida video */
+  .out { background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:10px; display:grid; gap:10px; }
+  .out video { width:100%; border-radius:12px; border:1px solid rgba(255,255,255,.08); background:#000; }
+  a.dl { color:#c6f2ff; text-decoration:none; font-weight:600; }
+
+  .hint { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎬 Stop-Motion con referencia transparente</h1>
+    <div class="hint">Toma 10 fotos; verás la última superpuesta para alinear la siguiente.</div>
+  </header>
+
+  <main>
+    <!-- Panel cámara y controles -->
+    <section class="cam">
+      <div class="stage" id="stage">
+        <video id="cam" playsinline autoplay muted></video>
+        <img id="onion" class="onion" alt="onion-skin" />
+        <div class="hud">
+          <div class="chip" id="count">0 / 10</div>
+          <div class="chip">Opacidad guía:
+            <input id="opacity" type="range" min="0" max="100" value="35" style="vertical-align:middle; width:120px;">
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="row grow">
+          <button id="snap" class="primary big">📸 Capturar</button>
+          <button id="undo" title="Borra la última foto">↩️ Deshacer</button>
+          <button id="reset" title="Vacia todas y vuelve a 0">🗑️ Reiniciar</button>
+        </div>
+        <div class="row">
+          <select id="cameraSel" title="Cámara">
+            <option value="environment">Trasera</option>
+            <option value="user">Frontal</option>
+          </select>
+          <label class="row" style="gap:6px;">
+            FPS
+            <select id="fpsSel">
+              <option>4</option><option selected>6</option><option>8</option><option>10</option><option>12</option>
+            </select>
+          </label>
+          <button id="make" class="accent">🎞️ Generar video</button>
+        </div>
+        <div class="hint">Sugerencia: usa trípode o apoya el móvil. Ajusta la opacidad para alinear.</div>
+      </div>
+
+      <div class="hint">Si no ves la cámara: abre esta página en <b>https</b> o en <b>localhost</b>.</div>
+    </section>
+
+    <!-- Tira de miniaturas -->
+    <section class="strip">
+      <div class="meta"><div>Fotogramas</div><div id="meta">0/10 listos</div></div>
+      <div class="thumbs" id="thumbs"></div>
+    </section>
+
+    <!-- Salida y descarga -->
+    <section class="out">
+      <div class="meta"><div>Resultado</div><div class="hint">Se genera en .webm</div></div>
+      <video id="out" controls></video>
+      <div><a id="download" class="dl" href="#" download="stopmotion.webm" style="display:none;">⬇️ Descargar video</a></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const MAX_FRAMES = 10;
+  const cam = document.getElementById('cam');
+  const onion = document.getElementById('onion');
+  const opacity = document.getElementById('opacity');
+  const count = document.getElementById('count');
+  const meta = document.getElementById('meta');
+  const thumbs = document.getElementById('thumbs');
+  const snapBtn = document.getElementById('snap');
+  const undoBtn = document.getElementById('undo');
+  const resetBtn = document.getElementById('reset');
+  const makeBtn = document.getElementById('make');
+  const outVid = document.getElementById('out');
+  const dl = document.getElementById('download');
+  const cameraSel = document.getElementById('cameraSel');
+  const fpsSel = document.getElementById('fpsSel');
+
+  let stream = null;
+  let facingMode = cameraSel.value; // 'environment' | 'user'
+  let frames = []; // array de ImageBitmap o ImageDataURL para preview
+  let canvas = document.createElement('canvas');
+  let ctx = canvas.getContext('2d', { alpha:false });
+
+  function uiUpdate(){
+    count.textContent = `${frames.length} / ${MAX_FRAMES}`;
+    meta.textContent = `${frames.length}/${MAX_FRAMES} listos`;
+    snapBtn.disabled = frames.length >= MAX_FRAMES;
+    undoBtn.disabled = frames.length === 0;
+    makeBtn.disabled = frames.length === 0;
+  }
+
+  function setOnionOpacity(){
+    onion.style.opacity = (+opacity.value/100).toFixed(2);
+  }
+
+  opacity.addEventListener('input', setOnionOpacity);
+
+  cameraSel.addEventListener('change', async () => {
+    facingMode = cameraSel.value;
+    await startCamera();
+  });
+
+  async function startCamera() {
+    try {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+      }
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1080 }, height: { ideal: 1440 } },
+        audio: false
+      });
+      cam.srcObject = stream;
+      await cam.play();
+      // espejo solo si es frontal
+      cam.style.transform = (facingMode === 'user') ? 'scaleX(-1)' : 'none';
+      adjustCanvas();
+    } catch (err) {
+      alert('No se pudo acceder a la cámara: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  function adjustCanvas(){
+    const track = stream?.getVideoTracks?.()[0];
+    const settings = track?.getSettings?.() || {};
+    const w = settings.width || cam.videoWidth || 1080;
+    const h = settings.height || cam.videoHeight || 1440;
+    // Normalizamos a 3:4 si el navegador no da dimensiones aún
+    const aspect = w && h ? (w/h) : (3/4);
+    let targetW = 1080;
+    let targetH = Math.round(targetW / aspect);
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+
+  function drawFrameToCanvas() {
+    // Dibuja el frame actual del video al canvas
+    const w = canvas.width, h = canvas.height;
+    ctx.drawImage(cam, 0, 0, w, h);
+  }
+
+  function addThumb(dataURL){
+    const img = new Image();
+    img.src = dataURL;
+    thumbs.appendChild(img);
+  }
+
+  async function capture(){
+    if (frames.length >= MAX_FRAMES) return;
+    drawFrameToCanvas();
+    // Guardamos como bitmap (más eficiente para luego reproducir) y como dataURL para miniatura/onion
+    const durl = canvas.toDataURL('image/jpeg', 0.92);
+    const bmp = await createImageBitmap(canvas);
+    frames.push({bmp, durl});
+    onion.src = durl; // usar como guía
+    addThumb(durl);
+    uiUpdate();
+    // Autogenerar cuando llegamos a 10
+    if (frames.length === MAX_FRAMES) {
+      generateVideo();
+    }
+  }
+
+  async function undo(){
+    if (!frames.length) return;
+    frames.pop();
+    // quitar última miniatura
+    if (thumbs.lastElementChild) thumbs.removeChild(thumbs.lastElementChild);
+    // actualizar onion a la nueva última (o limpiar)
+    onion.src = frames.length ? frames[frames.length-1].durl : '';
+    uiUpdate();
+  }
+
+  function resetAll(){
+    frames.forEach(f => f.bmp.close?.());
+    frames = [];
+    thumbs.innerHTML = '';
+    onion.src = '';
+    outVid.src = '';
+    dl.style.display = 'none';
+    uiUpdate();
+  }
+
+  async function generateVideo(){
+    if (!frames.length) return;
+
+    // Reproducimos los bitmaps en el canvas a FPS fijo y grabamos el canvas.captureStream
+    const fps = parseInt(fpsSel.value, 10) || 6;
+    const stream = canvas.captureStream(fps);
+    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' :
+                 MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' :
+                 'video/webm';
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 });
+    } catch(e){
+      alert('Tu navegador no soporta MediaRecorder para WebM.');
+      return;
+    }
+
+    const chunks = [];
+    recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const done = new Promise(resolve => recorder.onstop = resolve);
+    recorder.start();
+
+    // Dibujar cada frame segun fps
+    const frameDuration = 1000 / fps;
+    const w = canvas.width, h = canvas.height;
+
+    // Hacemos dos pasadas rápidas para que se vea "loop" (opcional)
+    const playOnce = async (arr) => {
+      for (let i=0; i<arr.length; i++){
+        ctx.clearRect(0,0,w,h);
+        ctx.drawImage(arr[i].bmp, 0, 0, w, h);
+        // esperar el frameDuration
+        await new Promise(r => setTimeout(r, frameDuration));
+      }
+    };
+
+    // Una pasada directa
+    await playOnce(frames);
+
+    recorder.stop();
+    await done;
+
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    outVid.src = url;
+    dl.href = url;
+    dl.style.display = 'inline-block';
+  }
+
+  // Eventos
+  snapBtn.addEventListener('click', capture);
+  undoBtn.addEventListener('click', undo);
+  resetBtn.addEventListener('click', resetAll);
+  makeBtn.addEventListener('click', generateVideo);
+
+  // Ajuste onion
+  setOnionOpacity();
+
+  // Arranque
+  if (!navigator.mediaDevices?.getUserMedia) {
+    alert('Tu navegador no soporta getUserMedia.');
+  } else {
+    startCamera();
+  }
+
+  // Si el video cambia de tamaño (al arrancar), reajustamos canvas
+  cam.addEventListener('loadedmetadata', adjustCanvas);
+
+  // Limpieza al salir
+  window.addEventListener('beforeunload', () => {
+    stream?.getTracks?.().forEach(t => t.stop());
+    frames.forEach(f => f.bmp.close?.());
+  });
+})();
+</script>
+</body>
+</html>
