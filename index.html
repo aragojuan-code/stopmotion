@@ -114,7 +114,10 @@
     <section class="out">
       <div class="meta"><div>Resultado</div><div class="hint">Se genera en .webm</div></div>
    <video id="out" playsinline webkit-playsinline loop muted></video>
-
+<div class="row">
+  <button id="playOut" class="primary">▶️ Ver vídeo</button>
+  <a id="download" class="dl" href="#" download="stopmotion.webm" style="display:none;">⬇️ Descargar video</a>
+</div>
       <div><a id="download" class="dl" href="#" download="stopmotion.webm" style="display:none;">⬇️ Descargar video</a></div>
     </section>
   </main>
@@ -268,7 +271,7 @@
 
     const frameDuration = 1000 / fps;
     const w = canvas.width, h = canvas.height;
-
+const playOutBtn = document.getElementById('playOut');
     const playOnce = async (arr) => {
       for (let i=0; i<arr.length; i++){
         ctx.clearRect(0,0,w,h);
@@ -283,10 +286,14 @@
 
     const blob = new Blob(chunks, { type: 'video/webm' });
     const url = URL.createObjectURL(blob);
-   outVid.src = url;
-outVid.setAttribute('controls','');        // añade controles ahora
-outVid.play().catch(()=>{});
-outVid.closest('.out').style.display = 'grid';  // ← muestra la sección
+  outVid.src = url;
+outVid.setAttribute('controls','');                 // mostramos controles
+outVid.setAttribute('playsinline','');              // forzar inline
+outVid.setAttribute('webkit-playsinline','');       // inline en iOS
+outVid.setAttribute('controlsList','nodownload noremoteplayback');
+outVid.setAttribute('disablePictureInPicture', ''); // sin PiP
+document.querySelector('.out').style.display = 'grid';
+
 dl.href = url;
 dl.style.display = 'inline-block';
   }
@@ -295,7 +302,13 @@ dl.style.display = 'inline-block';
   undoBtn.addEventListener('click', undo);
   resetBtn.addEventListener('click', resetAll);
   makeBtn.addEventListener('click', generateVideo);
-
+playOutBtn.addEventListener('click', () => {
+  // evitar abrir visor nativo: inline + sin fullscreen
+  try { outVid.pause(); } catch(e){}
+  // en iOS a veces respeta mejor si alternas muted
+  outVid.muted = true;
+  outVid.play().catch(()=>{ /* si falla, deja los controles para que toquen play */ });
+});
   setOnionOpacity();
 
   if (!navigator.mediaDevices?.getUserMedia) {
