@@ -18,14 +18,12 @@
   .cam { background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:10px; display:grid; gap:10px; }
   .stage { position:relative; width:100%; border-radius:12px; overflow:hidden; background:#000; }
 
-  /* 🔧 Tamaño adaptable:
-     - Móviles en vertical: altura controlada con vh para que quepan controles
-     - Escritorio o apaisado: mantenemos proporción 3/4
-  */
- .stage { height: 48vh; max-height: 62vh; }   /* antes 56/70 */
-@media (min-width: 600px) and (orientation: landscape) {
-  .stage { height:auto; aspect-ratio:3/4; }
-}
+  /* Tamaño adaptable */
+  .stage { height: 48vh; max-height: 62vh; }
+  @media (min-width: 600px) and (orientation: landscape) {
+    .stage { height:auto; aspect-ratio:3/4; }
+  }
+
   video, .onion {
     position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
   }
@@ -55,9 +53,10 @@
   a.dl { color:#c6f2ff; text-decoration:none; font-weight:600; }
 
   .hint { font-size:12px; color:var(--muted); }
-    /* 👇 Pega aquí estas líneas nuevas */
-  .out { display:none; }              /* oculta la sección hasta tener vídeo */
-  video { will-change: transform; }   /* ayuda en iOS */
+
+  /* FIX iOS/Edge: no mostrar el video de salida hasta que exista */
+  .out { display:none; }              /* se mostrará por JS al generar el vídeo */
+  video { will-change: transform; }   /* micro-fix de render en iOS webkit */
 </style>
 </head>
 <body>
@@ -70,7 +69,7 @@
   <main>
     <section class="cam">
       <div class="stage" id="stage">
-      <video id="cam" playsinline webkit-playsinline autoplay muted></video>
+        <video id="cam" playsinline webkit-playsinline autoplay muted></video>
         <img id="onion" class="onion" alt="onion-skin" />
         <div class="hud">
           <div class="chip" id="count">0 / 10</div>
@@ -113,12 +112,11 @@
 
     <section class="out">
       <div class="meta"><div>Resultado</div><div class="hint">Se genera en .webm</div></div>
-   <video id="out" playsinline webkit-playsinline loop muted></video>
-<div class="row">
-  <button id="playOut" class="primary">▶️ Ver vídeo</button>
-  <a id="download" class="dl" href="#" download="stopmotion.webm" style="display:none;">⬇️ Descargar video</a>
-</div>
-      <div><a id="download" class="dl" href="#" download="stopmotion.webm" style="display:none;">⬇️ Descargar video</a></div>
+      <video id="out" playsinline webkit-playsinline loop muted></video>
+      <div class="row">
+        <button id="playOut" class="primary">▶️ Ver vídeo</button>
+        <a id="download" class="dl" href="#" download="stopmotion.webm" style="display:none;">⬇️ Descargar video</a>
+      </div>
     </section>
   </main>
 </div>
@@ -137,6 +135,7 @@
   const resetBtn = document.getElementById('reset');
   const makeBtn = document.getElementById('make');
   const outVid = document.getElementById('out');
+  const playOutBtn = document.getElementById('playOut');
   const dl = document.getElementById('download');
   const cameraSel = document.getElementById('cameraSel');
   const fpsSel = document.getElementById('fpsSel');
@@ -146,6 +145,7 @@
   let frames = [];
   let canvas = document.createElement('canvas');
   let ctx = canvas.getContext('2d', { alpha:false });
+  let currentOutURL = null;
 
   function uiUpdate(){
     count.textContent = `${frames.length} / ${MAX_FRAMES}`;
@@ -175,10 +175,12 @@
       cam.srcObject = stream;
       await cam.play();
 
-      // 👇 Previsualización: espejo SOLO en frontal
-      const mirror = (facingMode === 'user') ? 'scaleX(-1)' : 'none';
-      cam.style.transform = mirror;
-      onion.style.transform = mirror; // 👈 superposición también espejada en frontal (alineada 1:1)
+      // Preview: espejo SOLO en frontal (selfie)
+      const isSelfie = (facingMode === 'user');
+      cam.style.transform = isSelfie ? 'scaleX(-1)' : 'none';
+
+      // La imagen superpuesta NO debe espejarse: ya viene “como se capturó”
+      onion.style.transform = 'none';
 
       adjustCanvas();
     } catch (err) {
@@ -199,7 +201,7 @@
     canvas.height = targetH;
   }
 
-  // ⬇️ Dibuja el frame actual con la misma orientación que la vista previa.
+  // Dibuja el frame actual con la misma orientación que la vista previa.
   function drawFrameToCanvas() {
     const w = canvas.width, h = canvas.height;
     ctx.save();
@@ -224,15 +226,19 @@
     const durl = canvas.toDataURL('image/jpeg', 0.92);
     const bmp = await createImageBitmap(canvas);
     frames.push({bmp, durl});
-    onion.src = durl; // usar como guía (ya con la misma orientación que la vista previa)
+    onion.src = durl; // guía exacta
     addThumb(durl);
     uiUpdate();
-    if (frames.length === MAX_FRAMES) generateVideo();
+    if (frames.length === MAX_FRAMES) {
+      // Si prefieres no auto-generar, comenta la línea siguiente
+      generateVideo();
+    }
   }
 
   async function undo(){
     if (!frames.length) return;
-    frames.pop();
+    const f = frames.pop();
+    try { f.bmp.close?.(); } catch(e){}
     if (thumbs.lastElementChild) thumbs.removeChild(thumbs.lastElementChild);
     onion.src = frames.length ? frames[frames.length-1].durl : '';
     uiUpdate();
@@ -243,7 +249,12 @@
     frames = [];
     thumbs.innerHTML = '';
     onion.src = '';
-    outVid.src = '';
+    // limpiar vídeo y ocultar bloque
+    try { outVid.pause(); } catch(e){}
+    outVid.removeAttribute('src');
+    outVid.load();
+    if (currentOutURL) { URL.revokeObjectURL(currentOutURL); currentOutURL = null; }
+    document.querySelector('.out').style.display = 'none';
     dl.style.display = 'none';
     uiUpdate();
   }
@@ -271,7 +282,7 @@
 
     const frameDuration = 1000 / fps;
     const w = canvas.width, h = canvas.height;
-const playOutBtn = document.getElementById('playOut');
+
     const playOnce = async (arr) => {
       for (let i=0; i<arr.length; i++){
         ctx.clearRect(0,0,w,h);
@@ -284,31 +295,36 @@ const playOutBtn = document.getElementById('playOut');
     recorder.stop();
     await done;
 
+    if (currentOutURL) { URL.revokeObjectURL(currentOutURL); currentOutURL = null; }
     const blob = new Blob(chunks, { type: 'video/webm' });
     const url = URL.createObjectURL(blob);
-  outVid.src = url;
-outVid.setAttribute('controls','');                 // mostramos controles
-outVid.setAttribute('playsinline','');              // forzar inline
-outVid.setAttribute('webkit-playsinline','');       // inline en iOS
-outVid.setAttribute('controlsList','nodownload noremoteplayback');
-outVid.setAttribute('disablePictureInPicture', ''); // sin PiP
-document.querySelector('.out').style.display = 'grid';
+    currentOutURL = url;
 
-dl.href = url;
-dl.style.display = 'inline-block';
+    outVid.src = url;
+    outVid.setAttribute('controls','');                 // mostramos controles
+    outVid.setAttribute('playsinline','');              // forzar inline
+    outVid.setAttribute('webkit-playsinline','');       // inline en iOS
+    outVid.setAttribute('controlsList','nodownload noremoteplayback');
+    outVid.setAttribute('disablePictureInPicture', ''); // sin PiP
+
+    document.querySelector('.out').style.display = 'grid';
+
+    dl.href = url;
+    dl.style.display = 'inline-block';
   }
+
+  // Reproducir sólo cuando el usuario toca el botón (evita visor nativo)
+  playOutBtn.addEventListener('click', () => {
+    try { outVid.pause(); } catch(e){}
+    outVid.muted = true;
+    outVid.play().catch(()=>{ /* si falla, usar controles manually */ });
+  });
 
   snapBtn.addEventListener('click', capture);
   undoBtn.addEventListener('click', undo);
   resetBtn.addEventListener('click', resetAll);
   makeBtn.addEventListener('click', generateVideo);
-playOutBtn.addEventListener('click', () => {
-  // evitar abrir visor nativo: inline + sin fullscreen
-  try { outVid.pause(); } catch(e){}
-  // en iOS a veces respeta mejor si alternas muted
-  outVid.muted = true;
-  outVid.play().catch(()=>{ /* si falla, deja los controles para que toquen play */ });
-});
+
   setOnionOpacity();
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -322,6 +338,7 @@ playOutBtn.addEventListener('click', () => {
   window.addEventListener('beforeunload', () => {
     stream?.getTracks?.().forEach(t => t.stop());
     frames.forEach(f => f.bmp.close?.());
+    if (currentOutURL) URL.revokeObjectURL(currentOutURL);
   });
 })();
 </script>
